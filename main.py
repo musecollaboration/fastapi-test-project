@@ -4,6 +4,11 @@ from fastapi import FastAPI
 app = FastAPI()
 
 
+@app.get('/')
+async def root():
+    return {'root message': 'OK'}
+
+
 @app.get('/func1')
 async def func1():
     return {'func1 message': 'OK'}
