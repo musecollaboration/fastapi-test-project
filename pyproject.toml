@@ -7,8 +7,8 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi[standard] (>=0.139.2,<0.140.0)",
-    "uvicorn[standard] (>=0.51.0,<0.52.0)",
+    "fastapi (>=0.139.2,<0.140.0)",
+    "uvicorn (>=0.51.0,<0.52.0)",
     "pwdlib[argon2] (>=0.3.0,<0.4.0)",
     "pyjwt (>=2.13.0,<3.0.0)",
     "sqlalchemy[asyncio] (>=2.0.51,<3.0.0)",

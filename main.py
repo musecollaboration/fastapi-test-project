@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
 
-add = FastAPI()
+app = FastAPI()
 
 
-@add.get('/')
+@app.get('/')
 async def root():
     return {'message': 'OK'}
