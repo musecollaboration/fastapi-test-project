@@ -1,7 +1,8 @@
+from datetime import datetime
+from uuid import UUID, uuid4
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
-from uuid import uuid4, UUID
 
 app = FastAPI()
 
@@ -22,8 +23,18 @@ class CreateItem(BaseModel):
 
 # ---------- База (заглушка) ----------
 fake_db = [
-    {"id": uuid4(), "name": "First item", "description": "This is the first item", "created_at": datetime.now()},
-    {"id": uuid4(), "name": "Second item", "description": "This is the second item", "created_at": datetime.now()},
+    {
+        "id": uuid4(),
+        "name": "First item",
+        "description": "This is the first item",
+        "created_at": datetime.now()
+    },
+    {
+        "id": uuid4(),
+        "name": "Second item",
+        "description": "This is the second item",
+        "created_at": datetime.now()
+    },
 ]
 
 # ---------- Эндпоинты ----------
