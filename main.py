@@ -42,7 +42,7 @@ fake_db = [
 
 @app.get("/")
 async def root():
-    return {"message": "Deployed via CI/CD!"}
+    return {"message": "OK. Deployed via CI/CD!"}
 
 
 @app.get("/items", response_model=list[Item])
