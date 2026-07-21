@@ -1,6 +1,6 @@
 services:
   fastapi:
-    build: .
+    image: ghcr.io/musecollaboration/fastapi-test-project:latest
     container_name: fastapi-container
     ports:
       - "8000:8000"
