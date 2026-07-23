@@ -1,7 +1,27 @@
 services:
+  db:
+    image: postgres:16
+    container_name: fastapi-db
+    environment:
+      POSTGRES_USER: fastapi_user
+      POSTGRES_PASSWORD: fastapi_pass
+      POSTGRES_DB: fastapi_db
+    ports:
+      - "5432:5432"          # пробрасываем порт PostgreSQL для локального доступа (опционально)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
   fastapi:
     image: ghcr.io/musecollaboration/fastapi-test-project:latest
     container_name: fastapi-container
     ports:
       - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@db:5432/fastapi_db
     restart: always
+
+volumes:
+  postgres_data:
