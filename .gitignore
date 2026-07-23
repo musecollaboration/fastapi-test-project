@@ -4,3 +4,4 @@ __pycache__/
 .env
 EOF
 .gitlab-ci.yml
+.vscode/
