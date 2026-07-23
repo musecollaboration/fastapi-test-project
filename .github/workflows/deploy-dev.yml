@@ -15,6 +15,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Run linter and tests
         run: |
           poetry install --with dev
@@ -41,11 +51,11 @@ jobs:
       - name: Deploy to VPS (dev) via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VPS_HOST }} # тот же сервер
-          username: ${{ secrets.VPS_USER }} # root
-          key: ${{ secrets.VPS_SSH_KEY }} # тот же ключ
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /srv/dev                        # отдельная папка для dev
+            cd /srv/dev
             docker compose pull
             docker compose down
             docker compose up -d
