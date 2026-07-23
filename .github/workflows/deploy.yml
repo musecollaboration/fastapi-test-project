@@ -9,11 +9,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # без этого не будет прав на публикацию в реестр
+      packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Run linter and tests
+        run: |
+          poetry install --with dev
+          poetry run ruff check .
+          poetry run pytest
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

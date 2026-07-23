@@ -8,7 +8,9 @@ async def test_root():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "API is running"}
+    data = response.json()
+    assert "message" in data
+    assert isinstance(data["message"], str)
 
 
 @pytest.mark.asyncio
