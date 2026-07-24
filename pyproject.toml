@@ -36,7 +36,13 @@ package-mode = false
 
 [tool.ruff]
 line-length = 120
-exclude = ["migrations", ".venv", ".git", "tests"]
+exclude = [
+    "migrations",
+    ".venv",
+    ".git",
+    "tests",
+    "conftest.py"
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF", "TID"]
@@ -54,3 +60,6 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-v"

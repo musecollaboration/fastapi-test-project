@@ -5,3 +5,4 @@ __pycache__/
 EOF
 .gitlab-ci.yml
 .vscode/
+.env.test

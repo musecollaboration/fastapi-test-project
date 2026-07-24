@@ -11,6 +11,21 @@ jobs:
       contents: read
       packages: write
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fastapi_user
+          POSTGRES_PASSWORD: fastapi_pass
+          POSTGRES_DB: fastapi_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -25,7 +40,9 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 -
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Run linter and tests
+      - name: Install dependencies and run linter & tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@localhost:5432/fastapi_db
         run: |
           poetry install --with dev
           poetry run ruff check .
