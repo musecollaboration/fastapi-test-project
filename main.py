@@ -1,12 +1,16 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
-import models  # noqa: F401  # pylint: disable=unused-import
-from database import Base, engine
+import models  # noqa: F401  # нужно для регистрации модели в Base
+from database import Base, SessionDep, engine
+from models import Item as ItemModel
+
+# ---------- Lifespan для создания таблиц ----------
 
 
 @asynccontextmanager
@@ -15,62 +19,90 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     yield
 
-
 app = FastAPI(lifespan=lifespan)
 
-# ---------- Модели ----------
+# ---------- Pydantic-схемы ----------
 
 
-class Item(BaseModel):
+class ItemOut(BaseModel):
     id: UUID
     name: str
     description: str | None = None
     created_at: datetime
 
 
-class CreateItem(BaseModel):
+class ItemCreate(BaseModel):
     name: str
     description: str | None = None
 
 
-# ---------- База (заглушка) ----------
-fake_db = [
-    {"id": uuid4(), "name": "First item", "description": "This is the first item", "created_at": datetime.now()},
-    {"id": uuid4(), "name": "Second item", "description": "This is the second item", "created_at": datetime.now()},
-]
+class ItemUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
 
-# ---------- Эндпоинты ----------
+# ---------- CRUD эндпоинты ----------
 
 
 @app.get("/")
 async def root():
     return {"message": "DEV. Deployed via CI/CD!"}
 
-
-@app.get("/items", response_model=list[Item])
-async def get_items():
-    return fake_db
+# 1. Получить все элементы
 
 
-@app.get("/items/{item_id}", response_model=Item)
-async def get_item(item_id: UUID):
-    for item in fake_db:
-        if item["id"] == item_id:
-            return item
-    raise HTTPException(status_code=404, detail="Item not found")
+@app.get("/items", response_model=list[ItemOut])
+async def get_items(session: SessionDep):
+    result = await session.execute(select(ItemModel))
+    items = result.scalars().all()
+    return items
+
+# 2. Получить один элемент по ID
 
 
-@app.post("/items", response_model=Item, status_code=201)
-async def create_item(item: CreateItem):
-    new_item = {"id": uuid4(), "name": item.name, "description": item.description, "created_at": datetime.now()}
-    fake_db.append(new_item)
+@app.get("/items/{item_id}", response_model=ItemOut)
+async def get_item(item_id: UUID, session: SessionDep):
+    item = await session.get(ItemModel, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+# 3. Создать новый элемент
+
+
+@app.post("/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
+async def create_item(item_in: ItemCreate, session: SessionDep):
+    new_item = ItemModel(name=item_in.name, description=item_in.description)
+    session.add(new_item)
+    await session.commit()
+    await session.refresh(new_item)
     return new_item
 
+# 4. Обновить элемент (полное или частичное обновление)
 
-@app.delete("/items/{item_id}")
-async def delete_item(item_id: UUID):
-    for i, item in enumerate(fake_db):
-        if item["id"] == item_id:
-            del fake_db[i]
-            return {"message": f"Item {item_id} deleted"}
-    raise HTTPException(status_code=404, detail="Item not found")
+
+@app.put("/items/{item_id}", response_model=ItemOut)
+async def update_item(item_id: UUID, item_in: ItemUpdate, session: SessionDep):
+    item = await session.get(ItemModel, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    # Обновляем только переданные поля
+    if item_in.name is not None:
+        item.name = item_in.name
+    if item_in.description is not None:
+        item.description = item_in.description
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+# 5. Удалить элемент
+
+
+@app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_item(item_id: UUID, session: SessionDep):
+    item = await session.get(ItemModel, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    await session.delete(item)
+    await session.commit()
+    return None  # 204 No Content
