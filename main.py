@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+import models  # noqa: F401  # pylint: disable=unused-import
 from database import Base, engine
 
 
