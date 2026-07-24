@@ -1,10 +1,21 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-app = FastAPI()
+from database import Base, engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 # ---------- Модели ----------
 
@@ -23,18 +34,8 @@ class CreateItem(BaseModel):
 
 # ---------- База (заглушка) ----------
 fake_db = [
-    {
-        "id": uuid4(),
-        "name": "First item",
-        "description": "This is the first item",
-        "created_at": datetime.now()
-    },
-    {
-        "id": uuid4(),
-        "name": "Second item",
-        "description": "This is the second item",
-        "created_at": datetime.now()
-    },
+    {"id": uuid4(), "name": "First item", "description": "This is the first item", "created_at": datetime.now()},
+    {"id": uuid4(), "name": "Second item", "description": "This is the second item", "created_at": datetime.now()},
 ]
 
 # ---------- Эндпоинты ----------
@@ -60,12 +61,7 @@ async def get_item(item_id: UUID):
 
 @app.post("/items", response_model=Item, status_code=201)
 async def create_item(item: CreateItem):
-    new_item = {
-        "id": uuid4(),
-        "name": item.name,
-        "description": item.description,
-        "created_at": datetime.now()
-    }
+    new_item = {"id": uuid4(), "name": item.name, "description": item.description, "created_at": datetime.now()}
     fake_db.append(new_item)
     return new_item
 
