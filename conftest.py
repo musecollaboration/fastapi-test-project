@@ -1,14 +1,14 @@
 import os
 
-from httpx import ASGITransport, AsyncClient
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database import Base, get_session
 from main import app
 
 
-# Меняем scope с "session" на "function", чтобы engine создавался внутри того же event loop, что и тест
+# Меняем scope "session" на "function", чтобы engine создавался внутри того же event loop, что и тест
 @pytest.fixture(scope="function")
 async def engine():
     db_url = os.environ["DATABASE_URL"]

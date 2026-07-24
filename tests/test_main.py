@@ -1,7 +1,9 @@
+from uuid import UUID
+
 import pytest
 from httpx import AsyncClient
-from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from models import Item as ItemModel
 
 
