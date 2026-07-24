@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import UUID
+
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
+
 import models  # noqa: F401
-from database import engine, Base, SessionDep
+from database import Base, SessionDep, engine
 from models import Item as ItemModel
 
 

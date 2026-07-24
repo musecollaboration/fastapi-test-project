@@ -1,6 +1,7 @@
 import os
-from dotenv import load_dotenv
 from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
 if not os.getenv("DATABASE_URL"):
