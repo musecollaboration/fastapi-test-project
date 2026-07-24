@@ -1,20 +1,11 @@
 import os
 import pytest
-import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
 from database import Base
 
-# Устанавливаем переменную для локальных тестов (если не задана в окружении)
-if not os.getenv("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "postgresql+asyncpg://fastapi_user:fastapi_pass@127.0.0.1:5432/fastapi_db"
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+# Устанавливаем DATABASE_URL для тестов, если не задан
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://fastapi_user:fastapi_pass@127.0.0.1:5432/fastapi_db")
 
 
 @pytest.fixture(scope="session")
@@ -36,6 +27,7 @@ async def session(engine):
     async with async_session() as sess:
         yield sess
         await sess.rollback()
+    # Очистка таблиц после теста
     async with engine.begin() as conn:
         await conn.execute(text("TRUNCATE items RESTART IDENTITY CASCADE"))
 
