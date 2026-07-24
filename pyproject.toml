@@ -3,7 +3,7 @@ name = "fastapi-test-project"
 version = "0.1.0"
 description = ""
 authors = [{name = "Alex"}]
-requires-python = ">=3.14"
+requires-python = ">=3.13,<3.15"
 dependencies = [
     "fastapi (>=0.139.2,<0.140.0)",
     "uvicorn (>=0.51.0,<0.52.0)",
@@ -40,8 +40,6 @@ exclude = [
     "migrations",
     ".venv",
     ".git",
-    "tests",
-    "conftest.py"
 ]
 
 [tool.ruff.lint]
@@ -51,15 +49,10 @@ ignore = [
     "SIM115",
 ]
 
-[tool.ruff.lint.isort]
-combine-as-imports = true
-force-single-line = false
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-v"
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+]

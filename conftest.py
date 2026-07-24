@@ -1,40 +1,46 @@
 import os
+
+from httpx import ASGITransport, AsyncClient
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import text
-from database import Base
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-# Устанавливаем DATABASE_URL для тестов, если не задан
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://fastapi_user:fastapi_pass@127.0.0.1:5432/fastapi_db")
+from database import Base, get_session
+from main import app
 
 
-@pytest.fixture(scope="session")
+# Меняем scope с "session" на "function", чтобы engine создавался внутри того же event loop, что и тест
+@pytest.fixture(scope="function")
 async def engine():
     db_url = os.environ["DATABASE_URL"]
-    engine = create_async_engine(db_url, echo=False)
-    async with engine.begin() as conn:
+    test_engine = create_async_engine(db_url, echo=False)
+
+    async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
+
+    yield test_engine
+
+    async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    await test_engine.dispose()
 
 
 @pytest.fixture(scope="function")
 async def session(engine):
-    async_session = async_sessionmaker(engine, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with async_session() as sess:
         yield sess
         await sess.rollback()
-    # Очистка таблиц после теста
-    async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE items RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture(scope="function")
-async def client():
-    from httpx import AsyncClient, ASGITransport
-    from main import app
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
+async def client(session: AsyncSession):
+    async def _override_get_session():
+        yield session
+
+    app.dependency_overrides[get_session] = _override_get_session
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.clear()
