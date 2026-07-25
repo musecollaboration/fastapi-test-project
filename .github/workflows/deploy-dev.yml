@@ -74,5 +74,6 @@ jobs:
           script: |
             cd /srv/dev
             docker compose pull
-            docker compose down
+            docker compose up -d db
+            docker compose run --rm fastapi alembic upgrade head
             docker compose up -d

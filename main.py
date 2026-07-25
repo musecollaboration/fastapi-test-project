@@ -7,14 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 import models  # noqa: F401
-from database import Base, SessionDep, engine
+from database import SessionDep
 from models import Item as ItemModel
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
 
 
