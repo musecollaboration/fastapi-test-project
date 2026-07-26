@@ -1,11 +1,11 @@
 import os
 
 import pytest
+from fastapi_cache import FastAPICache
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database import Base, get_session
-from fastapi_cache import FastAPICache
 from main import app
 
 

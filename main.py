@@ -3,13 +3,12 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi_cache import FastAPICache
+from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from cache import init_cache
-from fastapi_cache import FastAPICache
-from fastapi_cache.decorator import cache
-
 from database import SessionDep
 from models import Item as ItemModel
 
