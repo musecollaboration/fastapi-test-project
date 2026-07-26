@@ -1,8 +1,10 @@
-from sqlalchemy import Index, DateTime, String, text
+import uuid
+
+from sqlalchemy import DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+
 from database import Base
-import uuid
 
 
 class Item(Base):
