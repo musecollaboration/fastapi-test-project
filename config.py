@@ -10,6 +10,7 @@ if not os.getenv("DATABASE_URL"):
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    REDIS_URL: str
 
 
 settings = Settings()

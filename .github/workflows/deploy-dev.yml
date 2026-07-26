@@ -26,6 +26,16 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -43,6 +53,7 @@ jobs:
       - name: Install dependencies and run linter & tests
         env:
           DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@localhost:5432/fastapi_db
+          REDIS_URL: redis://localhost:6379/0
         run: |
           poetry install --with dev
           poetry run ruff check .

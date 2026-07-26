@@ -6,13 +6,17 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
-import models  # noqa: F401
+from cache import init_cache
+from fastapi_cache import FastAPICache
+from fastapi_cache.decorator import cache
+
 from database import SessionDep
 from models import Item as ItemModel
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await init_cache()
     yield
 
 
@@ -42,6 +46,7 @@ async def root():
 
 
 @app.get("/items", response_model=list[ItemOut])
+@cache(expire=60)   # кэшировать на 60 секунд
 async def get_items(session: SessionDep):
     result = await session.execute(select(ItemModel))
     return result.scalars().all()
@@ -61,6 +66,7 @@ async def create_item(item_in: ItemCreate, session: SessionDep):
     session.add(new_item)
     await session.commit()
     await session.refresh(new_item)
+    await FastAPICache.clear()  # сбросить кэш списка items
     return new_item
 
 
@@ -76,6 +82,7 @@ async def update_item(item_id: UUID, item_in: ItemUpdate, session: SessionDep):
     session.add(item)
     await session.commit()
     await session.refresh(item)
+    await FastAPICache.clear()  # сбросить кэш списка items
     return item
 
 
@@ -86,4 +93,5 @@ async def delete_item(item_id: UUID, session: SessionDep):
         raise HTTPException(status_code=404, detail="Item not found")
     await session.delete(item)
     await session.commit()
+    await FastAPICache.clear()  # сбросить кэш списка items
     return None

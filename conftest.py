@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database import Base, get_session
+from fastapi_cache import FastAPICache
 from main import app
 
 
@@ -44,3 +45,14 @@ async def client(session: AsyncSession):
             yield ac
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+async def setup_cache():
+    """Инициализация in-memory кэша для тестов."""
+    from fastapi_cache.backends.inmemory import InMemoryBackend
+
+    FastAPICache.reset()
+    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-test")
+    yield
+    FastAPICache.reset()

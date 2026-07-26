@@ -11,9 +11,53 @@ jobs:
       contents: read
       packages: write # без этого не будет прав на публикацию в реестр
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fastapi_user
+          POSTGRES_PASSWORD: fastapi_pass
+          POSTGRES_DB: fastapi_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies and run linter & tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@localhost:5432/fastapi_db
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          poetry install --with dev
+          poetry run ruff check .
+          poetry run pytest
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -41,5 +85,7 @@ jobs:
           script: |
             cd /srv/app
             docker compose pull
-            docker compose down
+            docker compose up -d db
+            docker compose up -d redis
+            docker compose run --rm fastapi alembic upgrade head
             docker compose up -d

@@ -12,8 +12,17 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: always
 
+  redis:
+    image: redis:7-alpine
+    container_name: fastapi-redis
+    ports:
+      - "6379:6379"          # пробрасываем порт для локального доступа (опционально)
+    volumes:
+      - redis_data:/data
+    restart: always
+
   fastapi:
-    image: ghcr.io/musecollaboration/fastapi-test-project:latest
+    build: .
     container_name: fastapi-container
     ports:
       - "8000:8000"
@@ -22,9 +31,12 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload   # ← перезагрузка при изменениях
     depends_on:
       - db
+      - redis            # добавляем зависимость от Redis
     environment:
       DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@db:5432/fastapi_db
+      REDIS_URL: redis://redis:6379/0   # переменная для подключения к Redis
     restart: always
 
 volumes:
   postgres_data:
+  redis_data:            # новый том для данных Redis
