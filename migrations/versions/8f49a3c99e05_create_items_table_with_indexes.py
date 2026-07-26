@@ -1,8 +1,8 @@
-"""add indexes
+"""create items table with indexes
 
-Revision ID: 6be9089058ef
-Revises: 09ec4d84d827
-Create Date: 2026-07-26 13:39:43.997031
+Revision ID: 8f49a3c99e05
+Revises: 
+Create Date: 2026-07-26 20:00:07.401919
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '6be9089058ef'
-down_revision: Union[str, Sequence[str], None] = '09ec4d84d827'
+revision: str = '8f49a3c99e05'
+down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
