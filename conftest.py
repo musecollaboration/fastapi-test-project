@@ -3,6 +3,7 @@ import os
 import pytest
 from fastapi_cache import FastAPICache
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database import Base, get_session
@@ -17,6 +18,8 @@ async def engine():
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        # Расширение для GIN-индексов по тексту
+        await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield test_engine
