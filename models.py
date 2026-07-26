@@ -26,6 +26,7 @@ class Item(Base):
         Index(
             "idx_items_description_trgm",
             "description",
-            postgresql_using="gin"                          # GIN для поиска по подстроке
+            postgresql_using="gin",
+            postgresql_ops={"description": "gin_trgm_ops"}   # GIN для поиска по подстроке
         ),
     )
