@@ -1,25 +1,58 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import UUID
 
+import sentry_sdk
+import structlog
 from fastapi import FastAPI, HTTPException, status
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from sqlalchemy import select
 
 from cache import init_cache
 from database import SessionDep
+from logger import setup_logging
+from middleware import RequestIDMiddleware
 from models import Item as ItemModel
+
+# Настраиваем логирование до создания приложения
+setup_logging()
+logger = structlog.get_logger(__name__)
+
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[
+            StarletteIntegration(),
+            FastApiIntegration(),
+        ],
+        traces_sample_rate=0.01,                 # 1% запросов для трассировки
+        environment=os.getenv("ENVIRONMENT", "development"),
+        release="1.0.0",                         # можно подставлять из CI/CD
+        send_default_pii=True,                   # отправляет IP-адрес клиента
+        auto_session_tracking=False,             # GlitchTip не поддерживает сессии
+    )
+else:
+    print("SENTRY_DSN not set, error tracking disabled.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Application starting up")
     await init_cache()
     yield
+    logger.info("Application shutting down")
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Добавляем middleware
+app.add_middleware(RequestIDMiddleware)
 
 
 class ItemOut(BaseModel):
@@ -47,6 +80,7 @@ async def root():
 @app.get("/items", response_model=list[ItemOut])
 @cache(expire=60)   # кэшировать на 60 секунд
 async def get_items(session: SessionDep):
+    logger.info("Fetching all items")
     result = await session.execute(select(ItemModel))
     return result.scalars().all()
 
@@ -61,11 +95,13 @@ async def get_item(item_id: UUID, session: SessionDep):
 
 @app.post("/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
 async def create_item(item_in: ItemCreate, session: SessionDep):
+    logger.info("Creating new item", name=item_in.name)
     new_item = ItemModel(name=item_in.name, description=item_in.description)
     session.add(new_item)
     await session.commit()
     await session.refresh(new_item)
     await FastAPICache.clear()  # сбросить кэш списка items
+    logger.info("Item created", item_id=str(new_item.id))
     return new_item
 
 

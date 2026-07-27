@@ -35,6 +35,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@db:5432/fastapi_db
       REDIS_URL: redis://redis:6379/0   # переменная для подключения к Redis
+      SENTRY_DSN: ${SENTRY_DSN}
     restart: always
 
 volumes:
