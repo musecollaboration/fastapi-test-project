@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI, HTTPException, status
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -50,6 +51,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+instrumentator = Instrumentator()
+instrumentator.instrument(app).expose(app, endpoint="/metrics")
 
 # Добавляем middleware
 app.add_middleware(RequestIDMiddleware)
