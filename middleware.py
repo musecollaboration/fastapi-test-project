@@ -2,6 +2,7 @@
 import time
 from uuid import uuid4
 
+from fastapi import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
@@ -38,3 +39,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Добавляем request_id в заголовок ответа
         response.headers["X-Request-ID"] = request_id
         return response
+
+
+class LimitRequestBodyMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_size: int = 10 * 1024 * 1024):
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.max_size:
+            raise HTTPException(status_code=413, detail="Payload Too Large")
+        return await call_next(request)

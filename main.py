@@ -6,6 +6,7 @@ from uuid import UUID
 import sentry_sdk
 import structlog
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -17,7 +18,7 @@ from sqlalchemy import select
 from cache import init_cache
 from database import SessionDep
 from logger import setup_logging
-from middleware import RequestIDMiddleware
+from middleware import RequestIDMiddleware, LimitRequestBodyMiddleware
 from models import Item as ItemModel
 
 # Настраиваем логирование до создания приложения
@@ -55,8 +56,26 @@ app = FastAPI(lifespan=lifespan)
 instrumentator = Instrumentator()
 instrumentator.instrument(app).expose(app, endpoint="/metrics")
 
+# Разрешённые origins — только наши домены
+origins = [
+    "https://muse-collaboration.ru",
+    "https://dev.muse-collaboration.ru",
+    # Для локальной разработки можно добавить:
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,              # список разрешённых доменов
+    allow_credentials=True,             # разрешить передачу cookies
+    allow_methods=["*"],                # разрешить все методы (GET, POST, PUT, DELETE и т.д.)
+    allow_headers=["*"],                # разрешить все заголовки
+)
+
 # Добавляем middleware
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(LimitRequestBodyMiddleware, max_size=10 * 1024 * 1024)
 
 
 class ItemOut(BaseModel):
