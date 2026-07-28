@@ -18,7 +18,7 @@ from sqlalchemy import select
 from cache import init_cache
 from database import SessionDep
 from logger import setup_logging
-from middleware import RequestIDMiddleware, LimitRequestBodyMiddleware
+from middleware import LimitRequestBodyMiddleware, RequestIDMiddleware
 from models import Item as ItemModel
 
 # Настраиваем логирование до создания приложения
