@@ -53,6 +53,8 @@ select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF", "TID"]
 ignore = [
     "B008",
     "SIM115",
+    "RUF003",  # разрешить кириллические комментарии
+    "SIM108",  # разрешить if-else вместо тернарного оператора
 ]
 
 [tool.pytest.ini_options]

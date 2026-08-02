@@ -1,12 +1,14 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Annotated
 from uuid import UUID
 
 import sentry_sdk
 import structlog
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -15,11 +17,22 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from sqlalchemy import select
 
+from auth import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    Token,
+    User,
+    UserCreate,
+    authenticate_user,
+    create_access_token,
+    get_current_active_user,
+    get_password_hash,
+)
 from cache import init_cache
 from database import SessionDep
 from logger import setup_logging
 from middleware import LimitRequestBodyMiddleware, RequestIDMiddleware
 from models import Item as ItemModel
+from models import UserModel
 
 # Настраиваем логирование до создания приложения
 setup_logging()
@@ -84,6 +97,8 @@ class ItemOut(BaseModel):
     description: str | None = None
     created_at: datetime
 
+    model_config = {"from_attributes": True}
+
 
 class ItemCreate(BaseModel):
     name: str
@@ -95,6 +110,54 @@ class ItemUpdate(BaseModel):
     description: str | None = None
 
 
+@app.post("/register", response_model=User)
+async def register_user(user_data: UserCreate, session: SessionDep):
+    # Проверяем, существует ли пользователь
+    existing = await session.execute(
+        select(UserModel).where(UserModel.username == user_data.username)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=400, detail="Username already registered")
+
+    hashed_password = get_password_hash(user_data.password)
+    new_user = UserModel(
+        username=user_data.username,
+        email=user_data.email,
+        full_name=user_data.full_name,
+        hashed_password=hashed_password,
+        disabled=False,
+    )
+    session.add(new_user)
+    await session.commit()
+    await session.refresh(new_user)
+    # Возвращаем Pydantic-схему User (без пароля)
+    return User(
+        username=new_user.username,
+        email=new_user.email,
+        full_name=new_user.full_name,
+        disabled=new_user.disabled,
+    )
+
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    session: SessionDep,
+):
+    user = await authenticate_user(form_data.username, form_data.password, session)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return Token(access_token=access_token, token_type="bearer")
+
+
 @app.get("/")
 async def root():
     return {"message": "DEV. Deployed via CI/CD!"}
@@ -102,14 +165,18 @@ async def root():
 
 @app.get("/items", response_model=list[ItemOut])
 @cache(expire=60)   # кэшировать на 60 секунд
-async def get_items(session: SessionDep):
+async def get_items(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
     logger.info("Fetching all items")
     result = await session.execute(select(ItemModel))
     return result.scalars().all()
 
 
 @app.get("/items/{item_id}", response_model=ItemOut)
-async def get_item(item_id: UUID, session: SessionDep):
+async def get_item(
+    item_id: UUID,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -117,7 +184,11 @@ async def get_item(item_id: UUID, session: SessionDep):
 
 
 @app.post("/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-async def create_item(item_in: ItemCreate, session: SessionDep):
+async def create_item(
+    item_in: ItemCreate,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
     logger.info("Creating new item", name=item_in.name)
     new_item = ItemModel(name=item_in.name, description=item_in.description)
     session.add(new_item)
@@ -129,7 +200,12 @@ async def create_item(item_in: ItemCreate, session: SessionDep):
 
 
 @app.put("/items/{item_id}", response_model=ItemOut)
-async def update_item(item_id: UUID, item_in: ItemUpdate, session: SessionDep):
+async def update_item(
+    item_id: UUID,
+    item_in: ItemUpdate,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -145,7 +221,11 @@ async def update_item(item_id: UUID, item_in: ItemUpdate, session: SessionDep):
 
 
 @app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(item_id: UUID, session: SessionDep):
+async def delete_item(
+    item_id: UUID,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
