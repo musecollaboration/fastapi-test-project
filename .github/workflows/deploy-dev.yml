@@ -54,6 +54,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@localhost:5432/fastapi_db
           REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: dev-secret-key-for-testing-only
         run: |
           poetry install --with dev
           poetry run ruff check .
