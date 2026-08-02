@@ -131,7 +131,8 @@ async def register_user(user_data: UserCreate, session: SessionDep):
     await session.commit()
     await session.refresh(new_user)
     # Возвращаем Pydantic-схему User (без пароля)
-    return User(
+    return User.model_construct(
+        id=UUID(str(new_user.id)),
         username=new_user.username,
         email=new_user.email,
         full_name=new_user.full_name,
@@ -165,10 +166,14 @@ async def root():
 
 @app.get("/items", response_model=list[ItemOut])
 @cache(expire=60)   # кэшировать на 60 секунд
-async def get_items(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
+async def get_items(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
     logger.info("Fetching all items")
     result = await session.execute(select(ItemModel))
-    return result.scalars().all()
+    items = result.scalars().all()
+    return [ItemOut.model_validate(item) for item in items]
 
 
 @app.get("/items/{item_id}", response_model=ItemOut)
@@ -180,7 +185,7 @@ async def get_item(
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    return item
+    return ItemOut.model_validate(item)
 
 
 @app.post("/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
@@ -190,13 +195,17 @@ async def create_item(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     logger.info("Creating new item", name=item_in.name)
-    new_item = ItemModel(name=item_in.name, description=item_in.description)
+    new_item = ItemModel(
+        name=item_in.name,
+        description=item_in.description,
+        owner_id=current_user.id,
+    )
     session.add(new_item)
     await session.commit()
     await session.refresh(new_item)
     await FastAPICache.clear()  # сбросить кэш списка items
     logger.info("Item created", item_id=str(new_item.id))
-    return new_item
+    return ItemOut.model_validate(new_item)
 
 
 @app.put("/items/{item_id}", response_model=ItemOut)
@@ -217,7 +226,7 @@ async def update_item(
     await session.commit()
     await session.refresh(item)
     await FastAPICache.clear()  # сбросить кэш списка items
-    return item
+    return ItemOut.model_validate(item)
 
 
 @app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -3,13 +3,14 @@
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import decode, encode
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,11 +30,11 @@ class UserCreate(UserBase):
 
 
 class User(UserBase):
+    id: UUID
     disabled: bool | None = None
     # поля, которые возвращаем клиенту (без hashed_password)
 
-    class Config:
-        from_attributes = True   # для работы с ORM-объектами
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserInDB(User):
@@ -86,6 +87,7 @@ async def get_user(username: str, session: AsyncSession) -> UserInDB | None:
         return None
     # Преобразуем ORM-объект в Pydantic-схему
     return UserInDB(
+        id=user.id,
         username=user.username,
         email=user.email,
         full_name=user.full_name,
