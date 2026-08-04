@@ -43,6 +43,7 @@ class User(UserBase):
 
 class UserInDB(User):
     hashed_password: str
+    created_at: datetime
 
 
 class Token(BaseModel):
@@ -99,6 +100,7 @@ async def get_user(username: str, session: AsyncSession) -> UserInDB | None:
         disabled=user.disabled,
         role=user.role,
         hashed_password=user.hashed_password,
+        created_at=user.created_at,
     )
 
 
