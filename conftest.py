@@ -12,6 +12,9 @@ if not os.environ.get("SECRET_KEY"):
 from database import Base, get_session
 from main import app
 
+# Отключаем rate limiting в тестах
+app.state.limiter.enabled = False
+
 
 # Меняем scope "session" на "function", чтобы engine создавался внутри того же event loop, что и тест
 @pytest.fixture(scope="function")

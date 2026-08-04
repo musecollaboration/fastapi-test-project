@@ -6,7 +6,7 @@ from uuid import UUID
 
 import sentry_sdk
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -17,6 +17,9 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 
 from auth import (
@@ -44,6 +47,14 @@ from logger import setup_logging
 from middleware import LimitRequestBodyMiddleware, RequestIDMiddleware
 from models import BlacklistedToken, UserModel
 from models import Item as ItemModel
+
+# ---------- Конфигурация безопасности ----------
+
+# Отключение /docs в продакшене
+ENABLE_DOCS = os.getenv("ENABLE_DOCS", "false").lower() == "true"
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
 
 # Настраиваем логирование до создания приложения
 setup_logging()
@@ -75,10 +86,48 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="API",
+    docs_url="/docs" if ENABLE_DOCS else None,
+    redoc_url="/redoc" if ENABLE_DOCS else None,
+    lifespan=lifespan,
+)
+
+# Добавляем limiter в state приложения
+app.state.limiter = limiter
 
 instrumentator = Instrumentator()
 instrumentator.instrument(app).expose(app, endpoint="/metrics")
+
+# ---------- Middleware для security headers ----------
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Добавление HTTP security headers ко всем ответам."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = (
+        "max-age=31536000; includeSubDomains"
+    )
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
+
+
+# ---------- Обработчик ошибок rate limiting ----------
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Обработка превышения лимита запросов."""
+    logger.warning("Rate limit exceeded", ip=get_remote_address(request))
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Слишком много запросов. Попробуйте позже."},
+        headers={"Retry-After": "60"},
+    )
 
 # Разрешённые origins — только наши домены
 origins = [
@@ -122,7 +171,12 @@ class ItemUpdate(BaseModel):
 
 
 @app.post("/register", response_model=User)
-async def register_user(user_data: UserCreate, session: SessionDep):
+@limiter.limit("3/minute")
+async def register_user(
+    request: Request,
+    user_data: UserCreate,
+    session: SessionDep,
+):
     # Проверяем, существует ли пользователь
     existing = await session.execute(
         select(UserModel).where(UserModel.username == user_data.username)
@@ -152,7 +206,9 @@ async def register_user(user_data: UserCreate, session: SessionDep):
 
 
 @app.post("/token", response_model=Token)
+@limiter.limit("5/minute")
 async def login_for_access_token(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: SessionDep,
 ):
@@ -214,7 +270,9 @@ class RefreshRequest(BaseModel):
 
 
 @app.post("/refresh", response_model=Token)
+@limiter.limit("10/minute")
 async def refresh_access_token(
+    request: Request,
     refresh_req: RefreshRequest,
     session: SessionDep,
 ):
@@ -311,6 +369,8 @@ async def get_item(
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
     return ItemOut.model_validate(item)
 
 
@@ -344,6 +404,8 @@ async def update_item(
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
     if item_in.name is not None:
         item.name = item_in.name
     if item_in.description is not None:
@@ -364,6 +426,8 @@ async def delete_item(
     item = await session.get(ItemModel, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
     await session.delete(item)
     await session.commit()
     await FastAPICache.clear()  # сбросить кэш списка items

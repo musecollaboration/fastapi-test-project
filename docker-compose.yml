@@ -33,6 +33,7 @@ services:
       - db
       - redis            # добавляем зависимость от Redis
     environment:
+      ENABLE_DOCS: "true"
       DATABASE_URL: postgresql+asyncpg://fastapi_user:fastapi_pass@db:5432/fastapi_db
       REDIS_URL: redis://redis:6379/0   # переменная для подключения к Redis
       SECRET_KEY: ${SECRET_KEY}
