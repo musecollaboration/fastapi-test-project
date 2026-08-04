@@ -1,8 +1,8 @@
-"""add blacklisted_tokens
+"""initial_clean
 
-Revision ID: 87a84cdb74ce
-Revises: 37a53b2090b9
-Create Date: 2026-08-03 16:03:01.619925
+Revision ID: 50a502256b74
+Revises: 
+Create Date: 2026-08-04 10:35:02.628562
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '87a84cdb74ce'
-down_revision: Union[str, Sequence[str], None] = '37a53b2090b9'
+revision: str = '50a502256b74'
+down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
