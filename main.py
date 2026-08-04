@@ -35,6 +35,7 @@ from auth import (
     get_current_user_stateless,
     get_password_hash,
     get_user,
+    get_user_permissions,
     oauth2_scheme,
 )
 from cache import init_cache
@@ -169,6 +170,7 @@ async def login_for_access_token(
             "user_id": str(user.id),
             "role": user.role,
             "email": user.email,
+            "permissions": get_user_permissions(user.role),
         },
         expires_delta=access_token_expires,
     )
@@ -178,6 +180,7 @@ async def login_for_access_token(
             "user_id": str(user.id),
             "role": user.role,
             "email": user.email,
+            "permissions": get_user_permissions(user.role),
         }
     )
 
@@ -394,3 +397,148 @@ async def get_current_user_stateless_route(
         role=user_data["role"],
         email=user_data.get("email"),
     )
+
+
+# ---------- RBAC-маршруты ----------
+
+class UserUpdateRole(BaseModel):
+    """Модель для обновления роли пользователя."""
+    username: str
+    role: str
+
+
+class UserOut(BaseModel):
+    """Модель вывода данных пользователя."""
+    id: UUID
+    username: str
+    email: str | None = None
+    full_name: str | None = None
+    role: str = "user"
+    disabled: bool | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@app.get("/admin/users", response_model=list[UserOut])
+async def list_users(
+    session: SessionDep,
+    _current_user: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Получить список всех пользователей.
+    Доступно только для администраторов.
+    """
+    # Проверка роли через stateless (без обращения к БД)
+    if _current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только для администраторов",
+        )
+
+    result = await session.execute(select(UserModel))
+    users = result.scalars().all()
+    return [UserOut.model_validate(u) for u in users]
+
+
+@app.get("/admin/users/{username}", response_model=UserOut)
+async def get_user_by_username(
+    username: str,
+    session: SessionDep,
+    _current_user: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Получить данные пользователя по username.
+    Доступно только для администраторов.
+    """
+    if _current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только для администраторов",
+        )
+
+    user = await get_user(username, session)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserOut.model_validate(user)
+
+
+@app.put("/admin/users/{username}/role", response_model=UserOut)
+async def update_user_role(
+    username: str,
+    role_data: UserUpdateRole,
+    session: SessionDep,
+    _current_user: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Обновить роль пользователя.
+    Доступно только для администраторов.
+    """
+    if _current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только для администраторов",
+        )
+
+    valid_roles = ["user", "moderator", "admin"]
+    if role_data.role not in valid_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Недопустимая роль. Допустимые: {valid_roles}",
+        )
+
+    user = await get_user(username, session)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.role = role_data.role
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    logger.info("User role updated", username=username, new_role=role_data.role)
+    return UserOut.model_validate(user)
+
+
+@app.delete("/admin/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    username: str,
+    session: SessionDep,
+    _current_user: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Удалить пользователя.
+    Доступно только для администраторов.
+    """
+    if _current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только для администраторов",
+        )
+
+    user = await get_user(username, session)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await session.delete(user)
+    await session.commit()
+
+    logger.info("User deleted", username=username)
+
+
+@app.get("/admin/permissions", response_model=dict)
+async def get_permissions(
+    _current_user: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Получить информацию o правах текущего пользователя.
+    Доступно для всех авторизованных пользователей.
+    """
+    role = _current_user.get("role", "user")
+    permissions = get_user_permissions(role)
+
+    return {
+        "role": role,
+        "permissions": permissions,
+        "permissions_count": len(permissions),
+    }

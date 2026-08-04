@@ -114,6 +114,9 @@ async def authenticate_user(username: str, password: str, session: AsyncSession)
 
 
 # ---------- JWT ----------
+REFRESH_TOKEN_EXPIRE_DAYS = 30   # или 7
+
+
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:
@@ -124,9 +127,6 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
 
 
-REFRESH_TOKEN_EXPIRE_DAYS = 30   # или 7
-
-
 def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:
@@ -135,6 +135,45 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
         expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     return encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
+
+
+def get_user_permissions(role: str) -> list:
+    """Получить список разрешений для роли пользователя."""
+    permissions_map = {
+        "user": [
+            "items:read",
+            "items:create",
+            "items:update:own",
+            "items:delete:own",
+            "profile:read",
+            "profile:update",
+        ],
+        "moderator": [
+            "items:read",
+            "items:create",
+            "items:update:any",
+            "items:delete:any",
+            "profile:read",
+            "profile:update",
+            "users:read",
+            "users:update",
+        ],
+        "admin": [
+            "items:read",
+            "items:create",
+            "items:update:any",
+            "items:delete:any",
+            "profile:read",
+            "profile:update",
+            "users:read",
+            "users:create",
+            "users:update",
+            "users:delete",
+            "users:role",
+            "system:config",
+        ],
+    }
+    return permissions_map.get(role, permissions_map["user"])
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
