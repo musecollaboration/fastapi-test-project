@@ -85,3 +85,11 @@ class Item(Base):
             postgresql_ops={"description": "gin_trgm_ops"}
         ),
     )
+
+
+class BlacklistedToken(Base):
+    __tablename__ = "blacklisted_tokens"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    token: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    blacklisted_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("now()"))

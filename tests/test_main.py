@@ -1,7 +1,7 @@
 from uuid import UUID
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Item as ItemModel
@@ -117,3 +117,80 @@ async def test_delete_item(auth_client: AsyncClient, session: AsyncSession):
     assert delete_resp.status_code == 204
     item = await session.get(ItemModel, UUID(item_id))
     assert item is None
+
+
+@pytest.mark.asyncio
+async def test_stateless_me(client: AsyncClient):
+    """Проверяет, что stateless-маршрут возвращает данные из JWT-токена."""
+    from main import app
+
+    # Регистрируем пользователя
+    await client.post(
+        "/register",
+        json={
+            "username": "statelesstest",
+            "password": "testpass123",
+            "email": "stateless@example.com",
+            "full_name": "Stateless Test",
+        },
+    )
+    # Получаем токен
+    token_resp = await client.post(
+        "/token",
+        data={"username": "statelesstest", "password": "testpass123"},
+    )
+    assert token_resp.status_code == 200
+    token = token_resp.json()["access_token"]
+
+    # Создаём новый клиент с заголовком авторизации
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as test_client:
+        test_client.headers["Authorization"] = f"Bearer {token}"
+        response = await test_client.get("/me/stateless")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["sub"] == "statelesstest"
+        assert data["role"] == "user"
+        assert "user_id" in data
+        assert data["email"] == "stateless@example.com"
+
+
+@pytest.mark.asyncio
+async def test_token_contains_user_data(client: AsyncClient):
+    """Проверяет, что access-токен содержит user_id, role, email."""
+    # Регистрируем пользователя
+    await client.post(
+        "/register",
+        json={
+            "username": "tokentest",
+            "password": "testpass123",
+            "email": "token@example.com",
+            "full_name": "Token Test",
+        },
+    )
+    # Получаем токен
+    token_resp = await client.post(
+        "/token",
+        data={"username": "tokentest", "password": "testpass123"},
+    )
+    assert token_resp.status_code == 200
+    access_token = token_resp.json()["access_token"]
+    refresh_token = token_resp.json()["refresh_token"]
+
+    # Декодируем и проверяем payload
+    from jwt import decode
+
+    from auth import ALGORITHM, _get_secret_key
+
+    access_payload = decode(access_token, _get_secret_key(), algorithms=[ALGORITHM])
+    assert access_payload["sub"] == "tokentest"
+    assert "user_id" in access_payload
+    assert access_payload["role"] == "user"
+    assert access_payload["email"] == "token@example.com"
+
+    refresh_payload = decode(refresh_token, _get_secret_key(), algorithms=[ALGORITHM])
+    assert refresh_payload["sub"] == "tokentest"
+    assert "user_id" in refresh_payload
+    assert refresh_payload["role"] == "user"
+    assert refresh_payload["email"] == "token@example.com"

@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -8,9 +8,11 @@ import sentry_sdk
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
+from jwt import InvalidTokenError, decode
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -19,20 +21,28 @@ from sqlalchemy import select
 
 from auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALGORITHM,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     Token,
     User,
     UserCreate,
+    UserInDB,
+    _get_secret_key,
     authenticate_user,
     create_access_token,
+    create_refresh_token,
     get_current_active_user,
+    get_current_user_stateless,
     get_password_hash,
+    get_user,
+    oauth2_scheme,
 )
 from cache import init_cache
 from database import SessionDep
 from logger import setup_logging
 from middleware import LimitRequestBodyMiddleware, RequestIDMiddleware
+from models import BlacklistedToken, UserModel
 from models import Item as ItemModel
-from models import UserModel
 
 # Настраиваем логирование до создания приложения
 setup_logging()
@@ -154,9 +164,122 @@ async def login_for_access_token(
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={
+            "sub": user.username,
+            "user_id": str(user.id),
+            "role": user.role,
+            "email": user.email,
+        },
+        expires_delta=access_token_expires,
     )
-    return Token(access_token=access_token, token_type="bearer")
+    refresh_token = create_refresh_token(
+        data={
+            "sub": user.username,
+            "user_id": str(user.id),
+            "role": user.role,
+            "email": user.email,
+        }
+    )
+
+    response = JSONResponse({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    })
+    # Устанавливаем cookies
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,           # только по HTTPS
+        samesite="strict",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+    )
+    return response
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post("/refresh", response_model=Token)
+async def refresh_access_token(
+    refresh_req: RefreshRequest,
+    session: SessionDep,
+):
+    """
+    Обновление access-токена через refresh-токен.
+    B микросервисной архитектуре можно передать user_id/role из payload
+    без обращения к БД.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid refresh token",
+    )
+    try:
+        payload = decode(refresh_req.refresh_token, _get_secret_key(), algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise credentials_exception
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except InvalidTokenError as exc:
+        raise credentials_exception from exc
+
+    user = await get_user(username, session)
+    if user is None:
+        raise credentials_exception
+
+    # Копируем все поля из старого токена + обновляем данные из БД
+    new_access = create_access_token(
+        data={
+            "sub": user.username,
+            "user_id": str(user.id),
+            "role": user.role,
+            "email": user.email,
+        }
+    )
+    new_refresh = create_refresh_token(
+        data={
+            "sub": user.username,
+            "user_id": str(user.id),
+            "role": user.role,
+            "email": user.email,
+        }
+    )
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "token_type": "bearer"
+    }
+
+
+@app.post("/logout")
+async def logout(
+    current_user: Annotated[UserInDB, Depends(get_current_active_user)],
+    token: Annotated[str, Depends(oauth2_scheme)],
+    session: SessionDep,
+):
+    # Извлекаем время истечения из токена
+    payload = decode(token, _get_secret_key(), algorithms=[ALGORITHM])
+    exp_timestamp = payload.get("exp")
+    expires_at = (
+        datetime.fromtimestamp(exp_timestamp, UTC)
+        if exp_timestamp
+        else datetime.now(UTC) + timedelta(minutes=15)
+    )
+    blacklisted = BlacklistedToken(token=token, expires_at=expires_at)
+    session.add(blacklisted)
+    await session.commit()
+    return {"detail": "Successfully logged out"}
 
 
 @app.get("/")
@@ -242,3 +365,32 @@ async def delete_item(
     await session.commit()
     await FastAPICache.clear()  # сбросить кэш списка items
     return None
+
+
+# ---------- Stateless-маршруты для микросервисов ----------
+
+class StateUser(BaseModel):
+    """Данные пользователя из JWT-токена (stateless)."""
+    sub: str
+    user_id: UUID | None = None
+    role: str = "user"
+    email: str | None = None
+
+
+@app.get("/me/stateless", response_model=StateUser)
+async def get_current_user_stateless_route(
+    user_data: Annotated[dict, Depends(get_current_user_stateless)],
+):
+    """
+    Stateless-маршрут: данные пользователя извлекаются из JWT-токена
+    без обращения к БД. Подходит для микросервисной архитектуры.
+
+    Для монолита, где данные могут меняться (например, роль),
+    используйте обычный /me s get_current_user.
+    """
+    return StateUser(
+        sub=user_data["sub"],
+        user_id=user_data.get("user_id"),
+        role=user_data["role"],
+        email=user_data.get("email"),
+    )
