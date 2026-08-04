@@ -1,6 +1,6 @@
 # rbac.py - Role-Based Access Control
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -11,7 +11,7 @@ from auth import get_current_user_stateless
 # ---------- Перечисление ролей ----------
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     """Допустимые роли в системе."""
     USER = "user"
     MODERATOR = "moderator"
