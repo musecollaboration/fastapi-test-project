@@ -1,7 +1,8 @@
 # RBAC (Role-Based Access Control) - Внедрение ролевой модели
 
-**Дата:** 2026-08-03  
-**Статус:** ✅ **Реализовано**
+**Дата обновления:** 2026-08-04  
+**Статус:** ✅ **Production Ready**  
+**Версия:** 2.0.0
 
 ---
 
@@ -14,6 +15,57 @@
 - [Использование в коде](#использование-в-коде)
 - [Тесты](#тесты)
 - [Безопасность](#безопасность)
+
+---
+
+## 🚨 Критические исправления архитектуры (2026-08-04)
+
+### 1. Строгая типизация `created_at`
+
+`created_at` всегда есть в БД (`server_default=text("now()")`) и всегда передаётся из ORM в Pydantic-модели. Клиент всегда получает дату, никогда `null`.
+
+**Правило:** Строгая типизация отражает реальное состояние данных.
+
+```python
+class UserInDB(User):
+    created_at: datetime  # ← всегда заполняется из БД
+
+class UserOut(BaseModel):
+    created_at: datetime  # ← клиент всегда получает дату
+```
+
+### 2. Исправление `UnmappedInstanceError` в админ-эндпоинтах
+
+В эндпоинтах `update_user_role` и `delete_user` используется прямой ORM-запрос к `UserModel`, а не функция `get_user()`, которая возвращает Pydantic-схему.
+
+**Правило:** SQLAlchemy-модели (`UserModel`) для работы с БД, Pydantic-схемы (`UserInDB`, `UserOut`) для передачи данных между слоями и валидации. Никогда не смешивать их.
+
+```python
+# ✅ update_user_role — ORM-запрос
+result = await session.execute(
+    select(UserModel).where(UserModel.username == username)
+)
+user = result.scalar_one_or_none()
+if user is None:
+    raise HTTPException(status_code=404, detail="User not found")
+
+user.role = role_data.role
+session.add(user)
+await session.commit()
+await session.refresh(user)
+return UserOut.model_validate(user)
+
+# ✅ delete_user — ORM-запрос
+result = await session.execute(
+    select(UserModel).where(UserModel.username == username)
+)
+user = result.scalar_one_or_none()
+if user is None:
+    raise HTTPException(status_code=404, detail="User not found")
+
+await session.delete(user)
+await session.commit()
+```
 
 ---
 
@@ -60,20 +112,26 @@ RBAC (Role-Based Access Control) — модель контроля доступ�
 
 ```
 ├── auth.py
-│   ├── get_user_permissions(role)  →获取权限列表
-│   └── 创建token时包含permissions
+│   ├── get_user_permissions(role)  → маппинг ролей в permissions
+│   ├── create_access_token()       → добавление permissions в JWT
+│   ├── create_refresh_token()      → добавление permissions в JWT
+│   ├── UserInDB                    → created_at: datetime (строгий тип)
+│   └── get_user()                  → всегда заполняет created_at из ORM
 │
 ├── rbac.py                         (новая)
 │   ├── UserRole enum
-│   ├── require_role()              → проверка роли
+│   ├── require_role()              → проверка роли из JWT payload
 │   ├── require_admin()             → проверка админа
-│   └── ROLE_PERMISSIONS            → маппинг ролей
+│   ├── require_moderator_or_admin() → проверка модератора или админа
+│   ├── require_permission()        → проверка конкретного permission
+│   └── ROLE_PERMISSIONS            → маппинг ролей в permissions
 │
 └── main.py
-    ├── /admin/users                → admin only
+    ├── /admin/users                → admin only (ORM-запрос)
     ├── /admin/users/{username}     → admin only
-    ├── /admin/users/{username}/role → admin only
-    └── /admin/permissions          → all users
+    ├── /admin/users/{username}/role → admin only (ORM-запрос)
+    ├── /admin/permissions          → all users (из JWT)
+    └── UserOut                     → created_at: datetime (строгий тип)
 ```
 
 ---
@@ -82,22 +140,22 @@ RBAC (Role-Based Access Control) — модель контроля доступ�
 
 ### Таблица прав:
 
-| Permission | User | Moderator | Admin |
-|------------|------|-----------|-------|
-| `items:read` | ✅ | ✅ | ✅ |
-| `items:create` | ✅ | ✅ | ✅ |
-| `items:update:own` | ✅ | - | - |
-| `items:update:any` | ❌ | ✅ | ✅ |
-| `items:delete:own` | ✅ | - | - |
-| `items:delete:any` | ❌ | ✅ | ✅ |
-| `profile:read` | ✅ | ✅ | ✅ |
-| `profile:update` | ✅ | ✅ | ✅ |
-| `users:read` | ❌ | ✅ | ✅ |
-| `users:create` | ❌ | ❌ | ✅ |
-| `users:update` | ❌ | ✅ | ✅ |
-| `users:delete` | ❌ | ❌ | ✅ |
-| `users:role` | ❌ | ❌ | ✅ |
-| `system:config` | ❌ | ❌ | ✅ |
+| Permission         | User | Moderator | Admin |
+| ------------------ | ---- | --------- | ----- |
+| `items:read`       | ✅   | ✅        | ✅    |
+| `items:create`     | ✅   | ✅        | ✅    |
+| `items:update:own` | ✅   | -         | -     |
+| `items:update:any` | ❌   | ✅        | ✅    |
+| `items:delete:own` | ✅   | -         | -     |
+| `items:delete:any` | ❌   | ✅        | ✅    |
+| `profile:read`     | ✅   | ✅        | ✅    |
+| `profile:update`   | ✅   | ✅        | ✅    |
+| `users:read`       | ❌   | ✅        | ✅    |
+| `users:create`     | ❌   | ❌        | ✅    |
+| `users:update`     | ❌   | ✅        | ✅    |
+| `users:delete`     | ❌   | ❌        | ✅    |
+| `users:role`       | ❌   | ❌        | ✅    |
+| `system:config`    | ❌   | ❌        | ✅    |
 
 ### Иерархия ролей:
 
@@ -211,7 +269,25 @@ Response 204 (No Content)
 
 ## Использование в коде
 
-### 1. Зависимость для проверки роли
+### 1. Добавление permissions в JWT-токен
+
+При создании access и refresh токенов автоматически добавляется список permissions на основе роли:
+
+```python
+# В эндпоинтах /token и /refresh
+access_token = create_access_token(
+    data={
+        "sub": user.username,
+        "user_id": str(user.id),
+        "role": user.role,
+        "email": user.email,
+        "permissions": get_user_permissions(user.role),  # ← автоматически
+    },
+    expires_delta=access_token_expires,
+)
+```
+
+### 2. Зависимость для проверки роли
 
 ```python
 from rbac import UserRole
@@ -225,7 +301,7 @@ async def protected_endpoint(
     return {"message": f"Hello admin {user_data['sub']}"}
 ```
 
-### 2. Быстрая проверка админа
+### 3. Быстрая проверка админа
 
 ```python
 from rbac import require_admin
@@ -237,7 +313,7 @@ async def admin_dashboard(
     return {"admin": user_data["sub"]}
 ```
 
-### 3. Проверка модератора или админа
+### 4. Проверка модератора или админа
 
 ```python
 from rbac import require_moderator_or_admin
@@ -251,7 +327,7 @@ async def delete_item(
     return {"deleted": item_id}
 ```
 
-### 4. Проверка permissions
+### 5. Проверка permissions
 
 ```python
 from rbac import require_permission
@@ -273,11 +349,11 @@ async def update_item(
 
 **Файл:** `tests/test_rbac.py`
 
-| Тест | Что проверяет |
-|------|---------------|
+| Тест                              | Что проверяет                          |
+| --------------------------------- | -------------------------------------- |
 | `test_admin_permissions_endpoint` | Пользователь может получить свои права |
 | `test_admin_users_requires_admin` | `/admin/users` доступен только админам |
-| `test_role_permissions_mapping` | Маппинг ролей и permissions корректен |
+| `test_role_permissions_mapping`   | Маппинг ролей и permissions корректен  |
 
 ### Запуск тестов:
 
@@ -299,6 +375,8 @@ python -m pytest tests/test_rbac.py -v
 3. **Role validation** — только валидные роли допускаются
 4. **403 Forbidden** — чёткий ответ при отсутствии прав
 5. **Logging** — все изменения ролей логируются
+6. **Strict typing** — `created_at` всегда `datetime`, никогда `None`
+7. **ORM separation** — SQLAlchemy-модели для БД, Pydantic-схемы для API
 
 ### ⚠️ Рекомендации на будущее:
 
@@ -352,14 +430,15 @@ GET /admin/permissions
 
 ## Файлы
 
-| Файл | Назначение |
-|------|------------|
-| `rbac.py` | RBAC-зависимости, UserRole, ROLE_PERMISSIONS |
-| `auth.py` | get_user_permissions(), добавление permissions в token |
-| `main.py` | Admin-эндпоинты с проверкой ролей |
-| `tests/test_rbac.py` | Тесты для RBAC |
+| Файл                 | Назначение                                              |
+| -------------------- | ------------------------------------------------------- |
+| `rbac.py`            | RBAC-зависимости, UserRole, ROLE_PERMISSIONS            |
+| `auth.py`            | `get_user_permissions()`, JWT с permissions, `UserInDB` |
+| `main.py`            | Admin-эндпоинты с ORM-запросами, `UserOut`              |
+| `tests/test_rbac.py` | Тесты для RBAC                                          |
 
 ---
 
-*Документ создан: 2026-08-03*  
-*Версия: 1.0.0*
+_Документ создан: 2026-08-03_  
+_Последнее обновление: 2026-08-04_  
+_Версия: 2.0.0_

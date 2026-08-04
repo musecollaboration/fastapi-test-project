@@ -487,7 +487,11 @@ async def update_user_role(
             detail=f"Недопустимая роль. Допустимые: {valid_roles}",
         )
 
-    user = await get_user(username, session)
+    # Используем SQLAlchemy-модель для работы с БД
+    result = await session.execute(
+        select(UserModel).where(UserModel.username == username)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -516,7 +520,11 @@ async def delete_user(
             detail="Доступно только для администраторов",
         )
 
-    user = await get_user(username, session)
+    # Используем SQLAlchemy-модель для работы с БД
+    result = await session.execute(
+        select(UserModel).where(UserModel.username == username)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
